@@ -1,0 +1,130 @@
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light; /* light 모드로 고정 */
+  color: black; /* 기본 글자색을 검은색으로 */
+  background-color: white; /* 기본 배경색을 흰색으로 */
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  font-weight: 500;
+  color: #646cff;
+  text-decoration: inherit;
+}
+a:hover {
+  color: #535bf2;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+
+/* ▼▼▼▼▼ 여기에 FullCalendar 커스텀 스타일을 추가합니다. ▼▼▼▼▼ */
+
+/* 기본 날짜 색상 (평일) */
+.fc .fc-daygrid-day-number {
+  color: #333;
+}
+
+/* 토요일(fc-day-sat) 날짜 색상을 파란색으로 */
+.fc-day-sat .fc-daygrid-day-number {
+  color: blue;
+  font-weight: normal; /* normal로 변경 */
+}
+
+/* 일요일(fc-day-sun) 날짜 색상을 빨간색으로 */
+.fc-day-sun .fc-daygrid-day-number {
+  color: red;
+  font-weight: normal; /* normal로 변경 */
+}
+
+/* 공휴일 날짜를 빨간색으로 만드는 규칙 */
+.fc .fc-day.fc-holiday .fc-daygrid-day-number {
+  color: red;
+}
+
+/* '월~금' 요일 헤더(th) 색상을 검은색으로 */
+.fc .fc-col-header-cell:not(.fc-col-header-cell-saturday):not(.fc-col-header-cell-sunday) a {
+  color: #333;
+}
+
+/* '토' 요일 헤더 색상을 파란색으로 */
+.fc .fc-col-header-cell-saturday a {
+  color: blue;
+}
+
+/* '일' 요일 헤더 색상을 빨간색으로 */
+.fc .fc-col-header-cell-sunday a {
+  color: red;
+}
+
+/* 공휴일 배경 스타일 */
+.fc-day-other .fc-bg-event, .fc-daygrid-day .fc-bg-event {
+  opacity: 0.15;
+}
+
+/* 공휴일인 날짜의 텍스트도 빨간색으로 변경 */
+.fc-daygrid-day.fc-day-today + .fc-bg-event ~ .fc-daygrid-day-events, /* This logic is complex, simpler solution is needed if this doesn't work. For now, rely on dayCellDidMount */
+.fc-day-sun .fc-daygrid-day-number {
+  color: red; /* Enforce red for sunday */
+}
