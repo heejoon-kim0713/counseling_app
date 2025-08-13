@@ -1,0 +1,8 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[context.production.environment]
+  VITE_SUPABASE_URL = "https://ojpemqvcskqmhumignqv.supabase.co"
+  VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9qcGVtcXZjc2txbWh1bWlnbnF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ5MDQ0MjcsImV4cCI6MjA3MDQ4MDQyN30.GdMJTesw8Y6VLW1rewmSviaQtfOfCZaUbvxNUUbSMEU"
+  VITE_SUPABASE_SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9qcGVtcXZjc2txbWh1bWlnbnF2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NDkwNDQyNywiZXhwIjoyMDcwNDgwNDI3fQ.HFspcYPSpkJukN5kB8HvWtk__XAKuMNyNJRcSd0NMHU"
