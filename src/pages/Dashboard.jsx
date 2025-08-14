@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../lib/AuthContext';
-import { supabase } from '../lib/supabaseClient';
+import { supabase, supabaseAdmin } from '../lib/supabaseClient';
 import { useNavigate, Link } from 'react-router-dom';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
@@ -8,6 +8,8 @@ import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import AppointmentModal from '../components/AppointmentModal';
 import axios from 'axios';
+import Select from 'react-select';
+
 
 const STATUS_COLORS = {
   '상담 예정': '#3788d8',
@@ -15,6 +17,11 @@ const STATUS_COLORS = {
   '등록': '#ffc107',
   '상담 취소': '#6c757d',
   '취소/환불': '#dc3545',
+};
+
+const selectStyles = {
+  control: (base) => ({ ...base, minHeight: 38 }),
+  menu: (base) => ({ ...base, zIndex: 9999 })
 };
 
 function Dashboard() {
@@ -31,38 +38,56 @@ function Dashboard() {
 
   const initialFormData = {
     client_name: '', client_contact: '', branch_id: '', subject_id: '',
-    type: 'Online', time: '10:00', status: '상담 예정', comment: '',
-    cancellation_reason: '', registered_subject_id: '',
+    type: '대면', time: '10:00', status: '상담 예정', comment: '',
+    cancellation_reason: '',
     registration_type: '', registration_months: '', registration_amount: '', payment_method: '',
     cancellation_type: '', deduction_amount: '', refund_amount: '',
+    registered_subjects: [],
   };
 
   const [formData, setFormData] = useState(initialFormData);
   const [branches, setBranches] = useState([]);
   const [subjects, setSubjects] = useState([]);
+  const [counselorList, setCounselorList] = useState([]);
+  const [subjectList, setSubjectList] = useState([]);
+
+  const [filters, setFilters] = useState({
+    branchId: 'all',
+    counselorId: 'all',
+    subjectId: 'all',
+  });
+
+  const handleFilterChange = (e) => {
+    const { name, value } = e.target;
+    setFilters(prev => ({ ...prev, [name]: value }));
+  };
 
   useEffect(() => {
     if (profile) {
-      fetchAppointments();
       fetchInitialData();
     }
   }, [profile]);
 
-  // ▼▼▼▼▼ 이 useEffect 부분을 아래의 새 코드로 교체해주세요. ▼▼▼▼▼
+  useEffect(() => {
+    if (profile) {
+      fetchAppointments();
+    }
+  }, [profile, filters]);
+  
   useEffect(() => {
     const calculateTodayStats = () => {
-      if (rawAppointments.length === 0) return;
-
+      if (!rawAppointments || rawAppointments.length === 0) {
+        setTodayStats({ total: 0, done: 0, left: 0 });
+        return;
+      }
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
       tomorrow.setDate(today.getDate() + 1);
-
       const todayAppointments = rawAppointments.filter(apt => {
         const aptDate = new Date(apt.datetime);
         return aptDate >= today && aptDate < tomorrow;
       });
-      
       const now = new Date();
       setTodayStats({
         total: todayAppointments.length,
@@ -70,29 +95,28 @@ function Dashboard() {
         left: todayAppointments.filter(apt => new Date(apt.datetime) >= now).length,
       });
     };
-
     calculateTodayStats();
     const intervalId = setInterval(calculateTodayStats, 60000);
-
     return () => clearInterval(intervalId);
   }, [rawAppointments]);
 
   const fetchInitialData = async () => {
     const { data: branchData } = await supabase.from('Branches').select('*');
     setBranches(branchData || []);
+    const { data: counselorData } = await supabase.from('Profiles').select('id, name').order('name');
+    setCounselorList(counselorData || []);
+    const { data: subjectData } = await supabase.from('Subjects').select('id, name, branch_id').order('name');
+    setSubjectList(subjectData || []);
   };
   
   useEffect(() => {
     if (formData.branch_id) {
-      const fetchSubjects = async () => {
-        const { data: subjectData } = await supabase.from('Subjects').select('*').eq('branch_id', formData.branch_id);
-        setSubjects(subjectData || []);
-      };
-      fetchSubjects();
+      const filtered = subjectList.filter(s => s.branch_id == formData.branch_id);
+      setSubjects(filtered);
     } else {
       setSubjects([]);
     }
-  }, [formData.branch_id]);
+  }, [formData.branch_id, subjectList]);
   
   const handleFormChange = (e) => {
     const { name, value } = e.target;
@@ -101,27 +125,29 @@ function Dashboard() {
   
   const fetchAppointments = async () => {
     try {
-      const { data: appointments, error: appError } = await supabase.from('Appointments').select('*');
-      if (appError) throw appError;
+      let query = supabase.from('Appointments').select(`
+        id, datetime, status, counselor_id, client_id, applied_subject_id,
+        Clients (name), 
+        applied_subject: Subjects!applied_subject_id (name)
+      `);
 
-      const { data: clients, error: clientError } = await supabase.from('Clients').select('*');
-      if (clientError) throw clientError;
+      if (filters.branchId !== 'all') query = query.eq('branch_id', filters.branchId);
+      if (filters.counselorId !== 'all') query = query.eq('counselor_id', filters.counselorId);
+      if (filters.subjectId !== 'all') query = query.eq('applied_subject_id', filters.subjectId);
       
-      const { data: subjectsData, error: subjectError } = await supabase.from('Subjects').select('*');
-      if (subjectError) throw subjectError;
+      const { data: appointments, error: appError } = await query;
+      if (appError) throw appError;
 
       const { data: profiles, error: profileError } = await supabase.from('Profiles').select('id, name');
       if (profileError) throw profileError;
 
-      const clientMap = new Map(clients.map(c => [c.id, c.name]));
-      const subjectMap = new Map(subjectsData.map(s => [s.id, s.name]));
       const profileMap = new Map(profiles.map(p => [p.id, p.name]));
-
-      setRawAppointments(appointments);
-      const formattedEvents = appointments.map(apt => {
+      setRawAppointments(appointments || []);
+      
+      const formattedEvents = (appointments || []).map(apt => {
         const counselorName = profileMap.get(apt.counselor_id) || '미지정';
-        const clientName = clientMap.get(apt.client_id) || '정보없음';
-        const subjectName = subjectMap.get(apt.applied_subject_id) || '정보없음';
+        const clientName = apt.Clients?.name || '정보없음';
+        const subjectName = apt.applied_subject?.name || '정보없음';
         return {
           id: apt.id,
           title: `${clientName} (${counselorName}, ${subjectName})`,
@@ -136,29 +162,22 @@ function Dashboard() {
       alert('데이터를 불러오는 데 실패했습니다: ' + error.message);
     }
   };
-  // ▲▲▲▲▲ 여기까지 ▲▲▲▲▲
 
   const handleLogout = async () => { await supabase.auth.signOut(); navigate('/'); };
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
-    
-    // ▼▼▼▼▼ 날짜/시간 조합 방식을 더 안정적으로 변경합니다. ▼▼▼▼▼
-    const datePart = editingEvent 
-      ? new Date(editingEvent.datetime).toISOString().split('T')[0] 
-      : new Date(selectedDate).toISOString().split('T')[0];
+    const datePart = editingEvent ? new Date(editingEvent.datetime).toISOString().split('T')[0] : selectedDate;
     const appointmentDatetime = new Date(`${datePart}T${formData.time}:00`).toISOString();
-    // ▲▲▲▲▲ 여기까지 ▲▲▲▲▲
 
     let appointmentUpdateData = {
       branch_id: formData.branch_id,
       applied_subject_id: formData.subject_id,
-      datetime: new Date(`${editingEvent ? new Date(editingEvent.datetime).toISOString().split('T')[0] : selectedDate}T${formData.time}:00`).toISOString(),
+      datetime: appointmentDatetime,
       type: formData.type,
       status: formData.status,
       comment: formData.comment,
       cancellation_reason: formData.status === '상담 취소' ? formData.cancellation_reason : null,
-      registered_subject_id: formData.status === '등록' ? formData.registered_subject_id : null,
       registration_type: formData.status === '등록' ? formData.registration_type : null,
       registration_months: formData.status === '등록' && formData.registration_type === '일반' ? formData.registration_months : null,
       registration_amount: formData.status === '등록' && formData.registration_type === '일반' ? formData.registration_amount : null,
@@ -170,10 +189,50 @@ function Dashboard() {
 
     if (editingEvent) {
       try {
-        const { error: clientUpdateError } = await supabase.from('Clients').update({ name: formData.client_name, contact: formData.client_contact }).eq('id', editingEvent.Clients.id);
+        const { error: clientUpdateError } = await supabase.from('Clients').update({ name: formData.client_name, contact: formData.client_contact }).eq('id', editingEvent.client_id);
         if (clientUpdateError) throw clientUpdateError;
         const { error: appointmentUpdateError } = await supabase.from('Appointments').update(appointmentUpdateData).eq('id', editingEvent.id);
         if (appointmentUpdateError) throw appointmentUpdateError;
+
+        if (formData.status === '등록') {
+          await supabase.from('Registration_Subjects').delete().eq('appointment_id', editingEvent.id);
+          const newRegisteredSubjects = formData.registered_subjects.filter(sub => sub.subject_id);
+          if (newRegisteredSubjects.length > 0) {
+            const registrationSubjects = newRegisteredSubjects.map(subject => ({
+              appointment_id: editingEvent.id,
+              subject_id: subject.subject_id
+            }));
+            if (registrationSubjects.length > 0) {
+              const { error: regSubError } = await supabase.from('Registration_Subjects').insert(registrationSubjects);
+              if (regSubError) throw regSubError;
+            }
+          }
+        }
+                // ▼▼▼▼▼ 로그 기록 부분을 supabaseAdmin으로 변경 ▼▼▼▼▼
+        const changes = [];
+        if (editingEvent.status !== formData.status) {
+          changes.push(`상태 변경: '${editingEvent.status || ''}' -> '${formData.status}'`);
+        }
+        if (editingEvent.comment !== formData.comment) {
+          changes.push('코멘트 수정됨');
+        }
+        // ... (다른 변경사항 감지 로직 추가 가능)
+        
+        if (changes.length > 0) {
+          const { error: logError } = await supabaseAdmin.from('Activity_Logs').insert({
+            user_id: profile.id,
+            appointment_id: editingEvent.id,
+            action: changes.join(', ')
+                        // ▼▼▼▼▼ 로그에 상세 정보 직접 저장 ▼▼▼▼▼
+            appointment_date: new Date(editingEvent.datetime).toLocaleDateString(),
+            counselor_name: counselorList.find(c => c.id === editingEvent.counselor_id)?.name || 'N/A',
+            client_name: editingEvent.Clients.name
+            // ▲▲▲▲▲ 여기까지 ▲▲▲▲▲
+          });
+          if (logError) throw logError;
+        }
+        // ▲▲▲▲▲ 여기까지 ▲▲▲▲▲
+        
         alert('성공적으로 수정되었습니다.');
       } catch (error) {
         alert('수정 중 오류가 발생했습니다: ' + error.message);
@@ -186,12 +245,37 @@ function Dashboard() {
           if (newClientError) throw newClientError;
           client = newClient;
         }
-        const { error: appointmentError } = await supabase.from('Appointments').insert({
+        
+        const { data: newAppointment, error: appointmentError } = await supabase.from('Appointments').insert({
           ...appointmentUpdateData,
           counselor_id: profile.id,
           client_id: client.id,
-        });
+        }).select().single();
+
         if (appointmentError) throw appointmentError;
+
+        if (formData.status === '등록' && formData.registered_subjects.length > 0) {
+          const registrationSubjects = formData.registered_subjects.filter(sub => sub.subject_id).map(subject => ({
+            appointment_id: newAppointment.id,
+            subject_id: subject.subject_id
+          }));
+          if (registrationSubjects.length > 0) {
+            const { error: regSubError } = await supabase.from('Registration_Subjects').insert(registrationSubjects);
+            if (regSubError) throw regSubError;
+          }
+        }
+
+                // ▼▼▼▼▼ 로그 기록 부분을 supabaseAdmin으로 변경 ▼▼▼▼▼
+        if (newAppointment) {
+            const { error: logError } = await supabaseAdmin.from('Activity_Logs').insert({
+              user_id: profile.id,
+              appointment_id: newAppointment.id,
+              action: `새 상담 등록`
+            });
+            if (logError) throw logError;
+        }
+        // ▲▲▲▲▲ 여기까지 ▲▲▲▲▲
+        
         alert('상담이 성공적으로 등록되었습니다.');
       } catch (error) {
         alert('등록 중 오류가 발생했습니다: ' + error.message);
@@ -206,8 +290,22 @@ function Dashboard() {
     if (!editingEvent) return;
     if (window.confirm('정말로 이 상담 내역을 삭제하시겠습니까?')) {
       try {
+        // ▼▼▼▼▼ 삭제 전에 로그부터 기록하도록 순서 변경 및 내용 추가 ▼▼▼▼▼
+        await supabase.from('Activity_Logs').insert({
+          user_id: profile.id,
+          appointment_id: editingEvent.id,
+          action: `상담 삭제`,
+          appointment_date: new Date(editingEvent.datetime).toLocaleDateString(),
+          counselor_name: counselorList.find(c => c.id === editingEvent.counselor_id)?.name || 'N/A',
+          client_name: editingEvent.Clients.name
+        });
+        // ▲▲▲▲▲ 여기까지 ▲▲▲▲▲
+
+        // 그 다음, 연결된 등록 과목과 상담 기록을 삭제합니다.
+        await supabase.from('Registration_Subjects').delete().eq('appointment_id', editingEvent.id);
         const { error } = await supabase.from('Appointments').delete().eq('id', editingEvent.id);
         if (error) throw error;
+
         alert('삭제되었습니다.');
         setIsModalOpen(false);
         setEditingEvent(null);
@@ -220,38 +318,52 @@ function Dashboard() {
 
   const handleDateClick = (arg) => {
     setEditingEvent(null);
-    setSelectedDate(arg.dateStr);
+    const date = new Date(arg.dateStr);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const formattedDate = `${year}-${month}-${day}`;
+    setSelectedDate(formattedDate);
     setFormData(initialFormData);
     setIsModalOpen(true);
   };
   
   const handleAddNewAppointment = () => {
-    const dateStr = window.prompt("상담을 등록할 날짜를 입력하세요 (YYYY-MM-DD 형식, ex)2025-08-13):");
-    // 날짜 형식이 유효한지 간단히 확인
+    const dateStr = window.prompt("상담을 등록할 날짜를 입력하세요 (YYYY-MM-DD 형식):", new Date().toISOString().split('T')[0]);
     if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
       handleDateClick({ dateStr: dateStr });
-    } else if (dateStr !== null) { // 사용자가 취소를 누르지 않았는데 형식이 틀린 경우
+    } else if (dateStr !== null) {
       alert("잘못된 날짜 형식입니다. YYYY-MM-DD 형식으로 입력해주세요.");
     }
   };
 
   const handleEventClick = async (clickInfo) => {
     try {
-      const { data: appointment, error } = await supabase.from('Appointments').select(`*, Clients(*), Subjects!applied_subject_id(*), Branches(*), registered_subject:Subjects!registered_subject_id(*)`).eq('id', clickInfo.event.id).single();
+      const { data: appointment, error } = await supabase.from('Appointments').select(`*, Clients(*), Subjects!applied_subject_id(*), Branches(*)`).eq('id', clickInfo.event.id).single();
       if (error) throw error;
-      setEditingEvent(appointment);
+
+      const { data: regSubjects, error: regError } = await supabase.from('Registration_Subjects').select('*, Subjects(*)').eq('appointment_id', clickInfo.event.id);
+      if (regError) throw regError;
+
+      const registeredSubjectsForForm = regSubjects.map(rs => ({
+        branch_id: rs.Subjects.branch_id,
+        subject_id: rs.Subjects.id,
+      }));
+
+      setEditingEvent({ ...appointment, client_id: appointment.Clients.id });
       const eventTime = new Date(appointment.datetime).toTimeString().substring(0, 5);
+      
       setFormData({
-        client_name: appointment.Clients.name || '',
-        client_contact: appointment.Clients.contact || '',
-        branch_id: appointment.Branches.id || '',
-        subject_id: appointment.Subjects.id || '',
-        type: appointment.type || 'Online',
+        client_name: appointment.Clients?.name || '',
+        client_contact: appointment.Clients?.contact || '',
+        branch_id: appointment.Branches?.id || '',
+        subject_id: appointment.Subjects?.id || '',
+        type: appointment.type || '대면',
         time: eventTime,
         status: appointment.status || '상담 예정',
         comment: appointment.comment || '',
         cancellation_reason: appointment.cancellation_reason || '',
-        registered_subject_id: appointment.registered_subject ? appointment.registered_subject.id : '',
+        registered_subjects: registeredSubjectsForForm,
         registration_type: appointment.registration_type || '',
         registration_months: appointment.registration_months || '',
         registration_amount: appointment.registration_amount || '',
@@ -278,11 +390,7 @@ function Dashboard() {
     try {
       const response = await axios.get(`https://date.nager.at/api/v3/PublicHolidays/${year}/KR`);
       const holidayEvents = response.data.map(holiday => ({
-        title: holiday.localName,
-        start: holiday.date,
-        allDay: true,
-        display: 'background',
-        color: '#ffcdd2'
+        title: holiday.localName, start: holiday.date, allDay: true, display: 'background', color: '#ffcdd2'
       }));
       setHolidays(prevHolidays => {
         const newHolidays = holidayEvents.filter(h => !prevHolidays.some(ph => ph.start === h.start));
@@ -302,9 +410,36 @@ function Dashboard() {
     }
     return [];
   };
+
+  const handleAddRegisteredSubject = () => {
+    if (formData.registered_subjects.length < 3) {
+      setFormData(prev => ({
+        ...prev,
+        registered_subjects: [...prev.registered_subjects, { branch_id: '', subject_id: '' }]
+      }));
+    } else {
+      alert('등록 과목은 최대 3개까지만 추가할 수 있습니다.');
+    }
+  };
+
+  const handleRemoveRegisteredSubject = (indexToRemove) => {
+    setFormData(prev => ({
+      ...prev,
+      registered_subjects: prev.registered_subjects.filter((_, index) => index !== indexToRemove)
+    }));
+  };
+
+  const handleRegisteredSubjectChange = (index, field, value) => {
+    const updatedSubjects = [...formData.registered_subjects];
+    updatedSubjects[index][field] = value;
+    if (field === 'branch_id') {
+      updatedSubjects[index]['subject_id'] = '';
+    }
+    setFormData(prev => ({ ...prev, registered_subjects: updatedSubjects }));
+  };
   
   if (loading) return <h3>Loading...</h3>;
-  if (!user) { navigate('/'); return null; }
+  if (!user) return null;
 
   return (
     <div style={{ padding: '20px' }}>
@@ -331,6 +466,21 @@ function Dashboard() {
         ))}
       </div>
       
+      <div style={{ display: 'flex', gap: '10px', padding: '10px', border: '1px solid #eee', borderRadius: '8px', marginBottom: '20px' }}>
+        <select name="branchId" value={filters.branchId} onChange={handleFilterChange} style={{ padding: '8px' }}>
+          <option value="all">전체 지점</option>
+          {branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+        </select>
+        <select name="counselorId" value={filters.counselorId} onChange={handleFilterChange} style={{ padding: '8px' }}>
+          <option value="all">전체 상담사</option>
+          {counselorList.map(counselor => <option key={counselor.id} value={counselor.id}>{counselor.name}</option>)}
+        </select>
+        <select name="subjectId" value={filters.subjectId} onChange={handleFilterChange} style={{ padding: '8px' }}>
+          <option value="all">전체 과목</option>
+          {subjectList.map(subject => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
+        </select>
+      </div>
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '20px 0', padding: '15px', background: '#f9f9f9', borderRadius: '8px' }}>
         <div style={{ display: 'flex', gap: '20px' }}>
           <strong>오늘 상담 현황:</strong>
@@ -344,9 +494,9 @@ function Dashboard() {
       </div>
 
       <main>
-<FullCalendar
+        <FullCalendar
           plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-          initialView="timeGridDay" // "day" 뷰가 기본
+          initialView="timeGridDay"
           headerToolbar={{
             left: 'prev,next today',
             center: 'title',
@@ -363,6 +513,11 @@ function Dashboard() {
           slotMinTime="09:00:00"
           slotMaxTime="21:00:00"
           allDaySlot={false}
+          eventTimeFormat={{ 
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          }}
         />
       </main>
       
@@ -381,8 +536,8 @@ function Dashboard() {
               {subjects.map(subject => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
             </select>
             <select name="type" value={formData.type} onChange={handleFormChange}>
-              <option value="Online">온라인</option>
-              <option value="Offline">오프라인</option>
+              <option value="대면">대면</option>
+              <option value="비대면">비대면</option>
             </select>
             <select name="time" value={formData.time} onChange={handleFormChange} required style={{ padding: '8px' }}>
               {Array.from({ length: 24 }, (_, i) => {
@@ -405,7 +560,6 @@ function Dashboard() {
               <option value="상담 취소">상담 취소</option>
               <option value="취소/환불">취소/환불</option>
             </select>
-
             {formData.status === '등록' && (
               <div style={{ border: '1px solid #ddd', padding: '10px', borderRadius: '5px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <label>등록 유형</label>
@@ -414,7 +568,6 @@ function Dashboard() {
                   <option value="국기">국기</option>
                   <option value="일반">일반</option>
                 </select>
-
                 {formData.registration_type === '일반' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
                     <input type="number" name="registration_months" placeholder="등록 개월" value={formData.registration_months} onChange={handleFormChange} />
@@ -428,15 +581,27 @@ function Dashboard() {
                     </select>
                   </div>
                 )}
-                
-                <label style={{marginTop: '10px'}}>등록 과목</label>
-                <select name="registered_subject_id" value={formData.registered_subject_id} onChange={handleFormChange} required>
-                  <option value="">등록 과목 선택</option>
-                  {subjects.map(subject => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
-                </select>
+                <label style={{marginTop: '10px', fontWeight: 'bold'}}>등록 과목 (최대 3개)</label>
+                {formData.registered_subjects.map((regSub, index) => (
+                  <div key={index} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <select value={regSub.branch_id} onChange={(e) => handleRegisteredSubjectChange(index, 'branch_id', e.target.value)} style={{ flex: 1, padding: '8px' }}>
+                      <option value="">지점 선택</option>
+                      {branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                    </select>
+                    <select value={regSub.subject_id} onChange={(e) => handleRegisteredSubjectChange(index, 'subject_id', e.target.value)} style={{ flex: 1, padding: '8px' }} disabled={!regSub.branch_id}>
+                      <option value="">과목 선택</option>
+                      {subjectList.filter(s => s.branch_id == regSub.branch_id).map(subject => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
+                    </select>
+                    <button type="button" onClick={() => handleRemoveRegisteredSubject(index)}>&times;</button>
+                  </div>
+                ))}
+                {formData.registered_subjects.length < 3 && (
+                  <button type="button" onClick={handleAddRegisteredSubject} style={{ marginTop: '5px' }}>
+                    + 등록 과목 추가
+                  </button>
+                )}
               </div>
             )}
-
             {formData.status === '상담 취소' && (
               <div style={{ border: '1px solid #ddd', padding: '10px', borderRadius: '5px' }}>
                 <label>취소 사유</label>
@@ -448,7 +613,6 @@ function Dashboard() {
                 </select>
               </div>
             )}
-            
             {formData.status === '취소/환불' && (
               <div style={{ border: '1px solid #ddd', padding: '10px', borderRadius: '5px' }}>
                 <label>취소/환불 유형</label>
@@ -457,7 +621,6 @@ function Dashboard() {
                     <option value="국기 취소">국기 취소</option>
                     <option value="일반 환불">일반 환불</option>
                 </select>
-
                 {formData.cancellation_type === '일반 환불' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
                     <input type="number" name="deduction_amount" placeholder="공제금 (원)" value={formData.deduction_amount} onChange={handleFormChange} />
@@ -466,10 +629,8 @@ function Dashboard() {
                 )}
               </div>
             )}
-
             <label>코멘트</label>
             <textarea name="comment" value={formData.comment} onChange={handleFormChange} rows="4" placeholder="상담 내용이나 특이사항을 입력하세요..."></textarea>
-            
             <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
               <button type="submit" style={{ flex: 1, padding: '10px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '5px' }}>
                 {editingEvent ? '수정하기' : '저장하기'}

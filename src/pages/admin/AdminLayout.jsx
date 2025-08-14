@@ -24,6 +24,7 @@ function AdminLayout() {
           <Link to="/admin/branches" style={styles.navLink}>지점 관리</Link>
           <Link to="/admin/subjects" style={styles.navLink}>과목 관리</Link>
           <Link to="/admin/teams" style={styles.navLink}>팀 관리</Link>
+          <Link to="/admin/logs" style={styles.navLink}>활동 로그</Link>
         </nav>
       </aside>
       <main style={styles.main}>
