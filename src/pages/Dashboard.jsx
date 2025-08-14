@@ -142,6 +142,14 @@ function Dashboard() {
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
+    
+    // ▼▼▼▼▼ 날짜/시간 조합 방식을 더 안정적으로 변경합니다. ▼▼▼▼▼
+    const datePart = editingEvent 
+      ? new Date(editingEvent.datetime).toISOString().split('T')[0] 
+      : new Date(selectedDate).toISOString().split('T')[0];
+    const appointmentDatetime = new Date(`${datePart}T${formData.time}:00`).toISOString();
+    // ▲▲▲▲▲ 여기까지 ▲▲▲▲▲
+
     let appointmentUpdateData = {
       branch_id: formData.branch_id,
       applied_subject_id: formData.subject_id,
